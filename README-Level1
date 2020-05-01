@@ -1,0 +1,45 @@
+CS 360 WSU
+Bryan Smith
+
+Level 1 submission
+4-9-20
+
+Commands Include:
+cd
+ls
+pwd
+mkdir
+rmdir
+creat
+link
+unlink
+quit
+
+
+Missing from submission:
+symlink
+
+
+Notes:
+mkdir & create seem to have an error involving making sibling files..
+This causes the oldest sibling to cause the younger to be corrupted in some manner.
+Below is what I understand to happen.
+
+Nesting dirs work, if dir1 exists, I can go in and make dir2 fine
+Sibling dirs break the younger siblings.
+Dir1 can exist and work fine, but if dir2 is made, dir1 breaks.
+It causes a loop when I ls into dir1, and I seem unable to make new dirs inside it.
+This loop can also break dir2 somehow.
+If I have dir1 & dir2, and makde dir3, 4, and onward. dir2 and up will stop being dirs. Except the oldest. 
+
+The oldest siblings are corrupting the youngest.
+This is also interfering with the time stored in the files.
+LS lists everything as if its a directory, and lists all times to be identical for some reason.
+This was NOT a problem with the original implementation of LS using hte provided database. This means that the one I am making is being broken by my file creations.
+Using LS on a file shows different information than LS being used on its own.
+
+
+Edit: retesting ls on the original disk image does show the same issue.
+
+
+

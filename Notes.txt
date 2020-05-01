@@ -1,0 +1,362 @@
+Notes.txt
+This file is used for me to compile my thougts and answers for the interview for my project
+Any bugs still in the code will be listed here
+This will be broken down into Levels then into Files, with each function inside the file being described
+
+
+
+Level 1
+	cd_ls_pwd
+		cd (chdir)
+			Verify that the pathname is valid, if there is no pathname, just go back to the root
+			after this we pull the ID number (ino) and create a MINODE pointer
+			This pointer allows us to check the status of the INODE to ensure that yes the path given is a 
+			directory
+			Once we have ensured that its either a dir, or root, we change the cwd to the desired MINODE
+			whether this be the stored root, or the new pointer we just made 
+		ls
+			LS relies on two sub functions, ls_fil and ls_dir. This function pulls the MINODE * of the name 
+			being passed into it, this allows us to check if its a file or a dir using i_mode
+			
+			ls_dir
+				when ls dir is called, it will attempt to do ls on all the files ontained within it
+				this means it needs to get the data block[0] which holds the data for the dir
+				this is stored in a DIR*
+				a loop then runs, this steps forward until we are outisde of the size parameters
+				while this loops, we pull the name of the file we are looking at, (dp->name)
+				then we pull the MINODE * using the INODE value stored in DP
+				this allows us to have enough data to call upon ls_file, which does the rest of the work.
+			ls_file
+				This is the workhorse of the LS command, even ls_dir comes here
+				It copes the critical details from the INODE and does bitwise operations on them to determine
+				the file types, the read/write/execute permissions for each class (user, group), the file size
+				and date/time accessed/created, and of course the name
+				
+		pwd
+			PWD is called when you want to see the Path of the Working Directory
+			when pwd is called, we pass it the CWD, (running->cwd)
+			we can compare this against the stored root, in which case we print "/", otherwise we pass it to the 
+			recursive function rpwd()
+			
+			rpwd()
+				this is the recursive version that works for anything other than root.
+				in theory this should pull the first block of data, and store it in a DIR*
+				we can then pull the name and compare it against "." and ".."
+				these shouldnt happen
+				the important part is using the parent_ino, we can create a MINODE*
+				this the nallows us to locate our own name using findmyname, and pass it our parent, our ino,
+				and the name we are looking for
+				we then call rpwd on our parent
+				everything loops back around
+				Once the end of the recursion hits we can print
+				/dir1/dir2/dir3/.....
+				
+				BUG: I thought it was an issue with my own mkdir, but it seems the issue lies here.
+				For some reason, my recursion loops endlessly until it core dumps, even after putting in a check to ensure that
+				the parent MINODE exists, it still will continue to loop
+				Likely a simple fix, but I dont see it
+				It will print /, but anything after that is corrupted data.
+				
+				
+	mkdir_creat
+		mkdir()
+		Start by verifying the function was passed a name
+		after this, split the path into a base, and a parent
+		with the parent name, we are able to get the MINODE* and INODE* of the parent(if they exist)
+		After we esnure they exist, move on to other checks, like its a dir, and not duplicating dir names
+		call the custom my_mkdir, then touch the dir to show its been updated
+		
+			my_mkdir()
+				this is the workhorse function, the above relies almost entirely on this
+				we create an INODE* that points at the INODE of the parent MINODE
+				we then go ahead and update all the information in this, like owner, user, group, 
+				we point the data blocks at the freshly allocated space
+				then to ensure there's no remnant data, we set all the values to 0
+				otherwise we could get some junk from wherever the memory came from
+				after this the inode is a fresh new directory, but it still needs critical identifiers
+				this includes the name[0] and name[1] pointing to itself and its parent, the type becoming EXT_2
+				and a few other minor things
+				we then need to push this new block of data into its proper place put_block()
+				and we need to make sure the parent dir has the name of our new dir added to to, enter_name()
+				
+		creat()
+			this uses essentially the same logic as mk_dir
+			we start with verifying the name, getting base and parent names
+			then the MINODE and INODE of hte parent, verifying existence, is dir, and duplication
+			then pass it up to my_creat()
+			
+			
+			my_creat()
+				just like my_mkdir(), this is the workhorse function
+				luckily, this is a lot less demanding
+				after allocating a fresh INODE, we update all the data fields in it
+				the critical part here is the i_mode, this differentiates it from a dir
+				again, we set the data blocks to 0, but we dont need to worry about blocks 0 and 1, as its not a dir
+				we put the MINODE into the stack, and enter the name into the parents directory.
+				tada, brand new file!
+	
+		enter_name()
+			while all this is doing is putting a name into the parents list, it has a process to it
+			we need to step through the parent, while ensuring we don't overstep the size restrictions
+			once we know we are inside the limits, we need to pull the parents data block
+			we then step to teh end of this block, as this is where free space is
+			we need to make sure that the space that is left available is large enough to accomodate the new data
+			if it is, then we can go ahead and update the block we are looking at with name, ino, size, and type
+			once the fields are updated, we put_block and add the memory we just allocated into the stack 
+			
+		
+	rmdir
+		remove_dir()
+			this is the start of rmdir, it verifies that the pathname is valid, and that we are not trying to remove
+			ourselves or our parents
+			We need to get our MINODE and INODE to ensure that we exist, and that it is a dir
+			we have to check if things are empty, we dont want to accidentally delete a bunch of data at once
+			
+			start wit hdeallocating the data blocks, this way we dont get memory leaks, and other functions
+			can use that space for themselves
+			once the block is deallocated, delete the inode.
+			we need to update this so we put the MINODE back
+			now we need to access the parent, and erase our name from our parents list
+			this is ultimately enter_name() in reverse
+			we then update links and touch the parent, and move on
+			
+			
+			
+		isEmptyDir()
+			this function relies on the links of the directory.
+			If a dir has 2 or more links, then it for sure has data inside it
+			if a dir only has 1 link, we need to look at i_block[1]
+			we are looking for any names other than the name of ourselves or the name of our parent
+			if block[1] is pointing at either of them (should be pointing to parent) then the dir is fine and empty
+			we can go ahead and delete it
+		
+		rm_child()
+			we pass this function the parent MINODE* and a name
+			using these two things, we step through the INODE of the MINODE, accessing each data block
+			we are looking for the name of the block to match the name we feed it
+			once it is found, we can check where it is, whether its the beginning, middle, or end block
+			this is checked by comparing rec_len against buffer and BLOCKSIZE
+			this is important because blocks are stored in an array
+			you cant just delete the middle and call it good, you need to shift things
+			
+			The easiest case is the last block (cp+dp->rec_len==buf+BLKSIZE)
+			we add our rec_len onto the len of the previous block, this way the system thinks that block
+			extends all the way to the end, and doesnt look for a block following it
+			this essentially marks our block for deletion without fully deleting it.
+	
+			The case where it is the first data block is treated a little differently
+			we deallocate the block, then shift all the blocks after it forward by one
+			this truly deleted and overwrites the data
+			
+			A middle block is similar to the first block.
+			We need to take our block and add its length onto the length of the end block, this
+			way we still have a record of available space
+			Then using memove, we use memove to take all the data from the end of our block,
+			to the very end, and shift is all left, into the area that we are wanting to delete
+			
+			BUG:
+			For some reason it refuses to delete the middle dir. It has no problem deleting the last one.
+			not sure why this is the case.
+			Perhaps I need to try using the logic behind it being hte first block?
+			THIS ALSO AFFECTS UNLINK WHICH RELIES ON THIS FN
+	
+	link_unlink_symlink
+		link()
+			creates a file that should point to a previous file
+			we start this process with standard checks to ensure that valid data was passed in
+			we get the MINODE and verify it does exist, and that we aren;t trying to link into a dir
+			Once we have this, we need the parent's MINODE*, this allows us to then create a file in
+			the parent using enter_name, only this name would be a cover
+			The ino used isnt a new ino, its the ino of the original file
+			this is what allows the new "file" to point to an older one
+			after this we can go ahead and update the parent and the original files, and put them back
+			
+			
+		unlink()
+			unlink is used for a lot of things, it is used to unlink a link, but it is also
+			able to be used to delete a file made through creat
+			start with the standard checks of valid path, valid MINODE, and that its not a dir, because dirs cant be linked
+			we reduce teh number of links
+			then deallocate all the blocks in the INODE, then the INODE itself
+			using the pathname given we can take the parent and basename, and pass these into rm_child
+			(This is why the bug affects both)
+			we then touch the parent, and put both the parent and our MINODE back.
+		
+		symlink()
+			symlink creates a soft link, or a pointer to another file, as opposed to link
+			again, standard checks of valid path, MIP, and third
+			we split up our new file into a parent and a base, and verify the parent exists, and the child
+			does not exist (duplication check)
+			we create a new file, and obtain the ino to get the MINODE and INODE of this new file
+			once we have this, we update the mode to 0120000
+			and we then enter_name 
+			I dont fully understand symlink and dont see how it is being tied to the original file.
+			perhaps I missed an aspect in the listed steps.
+			
+			BUG: Creates 2 files, was written when half asleep so likely a stupid error that I dont see
+Level 2
+	open_close_lseek
+		open_file()
+			we need to open a file with a certain mode, 0,1,2,3 for R,W,RW,A 
+			verify the given parameters are valid, and that the file given exists.
+			also need to check that we can indeed open it by checking the permissions
+			double check that the file we are trying to open isnt already open, this is accessed
+			through running->fd
+			We create an OpenFileTable, OFT, this allows us to put the modes into it
+			we can then point this oft at the minode we want to access
+			the oft is a big table of open files, it stores modes for us, and allows us to keep a few open at a time
+			
+			Once we have the oft, we need use mode to determine how its opened.
+			0 means we just want to read it, so our offset is 0,
+			1 means we want to write over the file, so we truncate it, and offset back to 0
+			2 means we want to RW it, we might not delete everything in it, so dont truncate
+			3 means we append, so we offset based on the size, so as to not overwrite old data
+			
+			running->fd keeps track of what processes are running currently, we need to add our oft
+			to this list
+			After its been added, we can touch the time, and move on, the file is now open and running
+			
+		
+		close_file()
+			close file takes a file that is in running->fd and closes it, this way it can be reopenned in another mode
+			or new files can be openned if we are out of space
+			start with verifying the file we want to close is within the bounds we have set
+			then set the fd at that point to 0, this clears it out, and removes the oft stored here
+			we then redeuce teh references to the oft, and finally we put the MINODE back on the stack
+			its not longer active and can be stored away to be accessed later
+			
+		
+		lseek()
+			this function doesnt make total sense to me for its uses, but it takes the OFT at the location
+			and sets its offset to be equivalent to a new position given, so long as this new position
+			is not outside of the bounds we have set 
+		pfd()
+			pfd is incredibly useful, as it lists all the running files in the fd.
+			this is accomplished by a loop that steps through the fd array, and is limited by NFD
+			if it finds an oftp stored here, it checks the mode, and prints it out along with the location
+			the offset, the dev, and the ino
+			This is important because other functions need the fd to be passed to them, so sengin the correct integer matters
+			
+		
+		truncate()
+			truncate takes the data inside the INODE and erases it.
+			this allows new data to be written over it without a memory leak taking place,
+			or if the new data isnt as large, it isnt capped by the old data
+			
+			this is done simply by stepping through i_blocks until it hits a null spot, and then setting every none
+			null blocks here to 0
+			we then touch the MINODE and move on
+			
+	
+	read_cat
+		read_file()
+			following instructions, this function asks for an fd and how many bytes to read, instead
+			of relying on these values being passed to it.
+			we need to verify the fd given is valid, in bounds, and it has read permissions
+			
+			we then use a loop to call my_read, this way if the buffer is larger than we are able to access, we can spit out
+			as much as we need.
+			
+			This was done in an attempt to fix a segmentation fault, and mimics code given for cat.
+			
+			sadly read will fall on its face for really large files, but cat has no problem
+			This is a BUG that I haven't been able to figure out. Segmentation faults
+			are a huge pain in my rear
+			
+		my_read()
+			like other files, this is the workhorse function. It takes the fd, a buffer, and hte number of bytes
+			and it will add the characters to the buffer, while returning the number of bytes written into the buffer.
+			
+			we start by making an OFT* that points at the given fd.
+			This allows us access to the MINODe and INODE
+			
+			direct blocks are blocks 0-11, which means we can copy the block directly over to be read
+			indirect blocks would be block 12, which relies on us using an integer pointer to copy the 
+			logic block into the block
+			double indirect blocks would be block 13, this also uses an integer pointer, but relies on
+			using some math to obtain the location of the indirect block and the offset (PAGE 234)
+			
+			once you have the block location, you can use get_block to read that blocks data into your buffer
+			you can then start copying byte by byte from one buffer into another.
+			as you may not want the entire thing blasted back
+			this also ensures you dont overstep the bounds of the block size limit, because the block you get back
+			may have other junk on the end of it, outside of the size
+			once everything is said and done, return the number of bytes back to your caller
+		
+		cat_file()
+			cat file is provided, and works so much better than my attempt at read. I have tried to mimic
+			cat in my own read file to prevent segmentation faults, but sadly these are still a problem.
+			it takes a buffer, and just calls a loop to call my_read endlessly until my_read isnt able to provided
+			any more data. While this loop is running it prints out mybuf as a string to the screen.
+			after cat is ran, it closes the file.
+	
+	write_cp_move
+		write_file()
+			similar to read, this wants to know what fd you want to access, vs passing it along
+			after i verify that the fd exists and can be written to, i aallow the user to input what 
+			they wish to be written
+			this is then passed along to my_write() to handle the heavy lifting
+			
+		my_write()
+			workhorse function. this takes the fd, the string, and the string length, and actually 
+			writes the string into the file
+			
+			inside this file we open the classics, the MINODE and INODE and OFT
+			we check the mode, to see if we need to increase the file size.
+			and we check AGAIN to ensure the MINODE and OFT are valid.
+			
+			this uses a similar set of logic as read, when it comes to direct, indirect and double indirect
+			we have a loop that keps trying to write bytes as long as there are bytes to write
+			if our logic block is less than 12, then we can set our blk to that location.
+			(We may need to allocate a block if one doesnt exist in this spot)
+
+			following the logic for read, indirect blocks would be logic block 12, which means we need to
+			get blk to point at the correct location by using an integer pointer.
+			and again, if nothing exists at i_block[12] we will allocate a block for it, and set values to 0
+			once we have the block there, point blk to it.
+			
+			double indirect blocks, aka logic block number 13.
+			we used the same logic for read as we did in write, only we need to allocate a block if
+			no block is at this location 
+			once we have ensured a block exists there, set blk to point to that location
+		
+			Now we are past all of the direct indirect junk.
+			All that matters now is taking the string passed into the function and either writing it
+			into the file, or writing over the file with it.
+			so get the block at the location we have discovered, check the size of the block, and 
+			our start point
+			now loop through until we are either out of bytes to write, or we exceed the block size
+			every time we loop we need to increase the size of the INODE i_size, and copy
+			characters from the given buffer to the write buffer, teh write buffer is pointing into the file.
+			
+			After the loop, touch the MIP, and return the number of written bytes.
+		
+		cp()
+			this uses read and write to copy a file
+			Start with the same checks i have in every function. Ensure the passed parametersare valid
+			and that the original file is a valid file.
+			If the destination file doesnt exist, make it.
+			If the destination file does exist, we will just write over it.
+			
+			Open the original file for read, and the destination for read write.
+			then loop through and keep reading from the source. 
+			Every time you get data from the source, put this data into the destination via my_write
+			be sure to keep track of the number of bytes being fed from one to the other, so that
+			write knows how much to add in.
+			
+			after your loop ends, close both files.
+			Congrats, you now have  two copies!
+		
+		mv()
+			move moves a file from one location to another.
+			This can be done by copying the original into a new one, then deleting the original
+			or by creating a link file, so you now have two files pointing to the same spot,
+			then deleting the original file. But the link file still exists, so it will still be pointing 
+			at the same location.
+			This second option is how my mv function works.
+			
+			Sadly this means the bug with UNLINK does affect this function. But once UNLINK is fixed
+			this function will properly operate.
+			
+	
+Util.c
